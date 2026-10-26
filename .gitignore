@@ -1,0 +1,39 @@
+# Secrets and credentials
+.env
+*.session
+*.session-journal
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Downloads
+downloads/
+
+# Reports
+reports/
+
+# Distribution
+dist/
+build/
+*.egg-info/
