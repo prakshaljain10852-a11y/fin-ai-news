@@ -1,0 +1,95 @@
+name: Daily Newsletter Intelligence
+
+on:
+  schedule:
+    # Runs daily at 7:00 AM IST (1:30 AM UTC)
+    - cron: '30 1 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Create .env from secrets
+        run: |
+          cat > .env << 'EOF'
+          TELEGRAM_API_ID=${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH=${{ secrets.TELEGRAM_API_HASH }}
+          TELEGRAM_PHONE=${{ secrets.TELEGRAM_PHONE }}
+          TARGET_CHANNEL=${{ secrets.TARGET_CHANNEL }}
+          BOT_TOKEN=${{ secrets.BOT_TOKEN }}
+          REPORT_CHAT_ID=${{ secrets.REPORT_CHAT_ID }}
+          LLM_BASE_URL=${{ secrets.LLM_BASE_URL }}
+          LLM_API_KEY=${{ secrets.LLM_API_KEY }}
+          LLM_MODEL=${{ secrets.LLM_MODEL }}
+          SESSION_NAME=newsletter_session
+          MAX_MESSAGES_PER_RUN=50
+          DAYS_BACK=1
+          MIN_PDF_SIZE_KB=10
+          EOF
+
+      - name: Restore Telegram session
+        run: |
+          echo "${{ secrets.TELEGRAM_SESSION }}" | base64 -d > newsletter_session.session
+
+      - name: Set up LLM endpoint
+        run: |
+          # For GitHub Actions, we need a publicly accessible LLM endpoint
+          # Option 1: Use a tunnel service (ngrok, cloudflare tunnel) pointing to your local FCC proxy
+          # Option 2: Deploy FCC proxy to a cloud service (Railway, Render, Fly.io)
+          # Option 3: Use a free LLM API directly (OpenRouter, etc.)
+          echo "LLM_BASE_URL=${{ secrets.LLM_BASE_URL }}" >> $GITHUB_ENV
+
+      - name: Run newsletter intelligence bot
+        env:
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+        run: |
+          python -m src.main
+
+      - name: Save Telegram session (for next run)
+        if: always()
+        run: |
+          if [ -f newsletter_session.session ]; then
+            base64 -w 0 newsletter_session.session > session_b64.txt
+            echo "SESSION_B64=$(cat session_b64.txt)" >> $GITHUB_OUTPUT
+          fi
+        id: session
+
+      - name: Update session secret
+        if: always() && steps.session.outputs.SESSION_B64 != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { Octokit } = require("@octokit/rest");
+            const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+            
+            await octokit.rest.actions.createOrUpdateRepoSecret({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              secret_name: "TELEGRAM_SESSION",
+              encrypted_value: "${{ steps.session.outputs.SESSION_B64 }}",
+              key_id: "${{ secrets.PUBLIC_KEY }}"  // Not needed for repo secrets
+            });
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-report-${{ github.run_id }}
+          path: reports/
+          retention-days: 30
